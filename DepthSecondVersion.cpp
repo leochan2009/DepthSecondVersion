@@ -111,6 +111,7 @@ CDepthSecondVersion::CDepthSecondVersion() :
     // Initial the openigtlink server
     threaderServer = igtl::MultiThreader::New();
     glockServer = igtl::MutexLock::New();
+    DepthImageServerX264::ThreadDataServer td_Server;
     td_Server.portNum = 18944;
     td_Server.stop = 1;
     td_Server.pic_DepthFrame = picDepthFrame;
@@ -118,7 +119,8 @@ CDepthSecondVersion::CDepthSecondVersion() :
     td_Server.pic_Color = picColor;
     td_Server.transmissionFinished = true;
     td_Server.conditionVar = igtl::ConditionVariable::New();
-    threaderServer->SpawnThread((igtl::ThreadFunctionType) &ServerControl, &td_Server);
+    td.td_Server = &td_Server;
+    threaderServer->SpawnThread((igtl::ThreadFunctionType) &ServerControl, &td);
     
 }
   
@@ -343,9 +345,9 @@ void CDepthSecondVersion::Update()
         if (Synchonize)
         {
           this->localMutex->Lock();
-          this->td_Server.transmissionFinished = false;
-          while (!this->td_Server.transmissionFinished)
-            this->td_Server.conditionVar->Wait(this->localMutex);
+          this->td.td_Server->transmissionFinished = false;
+          while (!this->td.td_Server->transmissionFinished)
+            this->td.td_Server->conditionVar->Wait(this->localMutex);
           this->localMutex->Unlock();
         }
         SafeRelease(pFrameDescriptionColor);
@@ -448,8 +450,8 @@ LRESULT CALLBACK CDepthSecondVersion::DlgProc(HWND hWnd, UINT message, WPARAM wP
 			      {
               LPTSTR lpString= new TCHAR[5];
               GetDlgItemText(m_hWnd, IDC_EDIT1, lpString, 5);
-              td_Server.portNum = atoi((const char*)lpString);
-              td_Server.stop = (bool) HIWORD(wParam);
+              td.td_Server->portNum = atoi((const char*)lpString);
+              td.td_Server->stop = (bool) HIWORD(wParam);
 			      }
             break;
     }

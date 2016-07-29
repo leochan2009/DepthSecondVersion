@@ -122,7 +122,7 @@ private:
 
     igtl::MultiThreader::Pointer threaderServer;
     igtl::MutexLock::Pointer glockServer;
-    DepthImageServerX264::ThreadDataServer td_Server;
+    DepthImageServerX264::ThreadData td;
     igtl::SimpleMutexLock *localMutex;
 
     /// <summary>

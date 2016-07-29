@@ -345,25 +345,23 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
 }
 std::string     videoFile = "";
 
-void ServerControl()
+void ServerControl(void * ptr)
 {
   //------------------------------------------------------------
   // Parse Arguments
  
   int    port     = 18944;
   
-
-  igtl::MultiThreader::Pointer threader = igtl::MultiThreader::New();
   igtl::MutexLock::Pointer glock = igtl::MutexLock::New();
-  DepthImageServerX264::ThreadData td;
-  //CalculateFrameRate(cap);
-  //Test the encoder
-  td.interval = 1;
-  td.glock    = glock;
-  td.socket   = NULL;
-  td.stop     = 0;
-  td.useCompression = 1;
-  threader->SpawnThread((igtl::ThreadFunctionType) &ThreadFunction, &td);
+  igtl::MultiThreader::Pointer threader = igtl::MultiThreader::New();
+  igtl::MultiThreader::ThreadInfo* info =
+  static_cast<igtl::MultiThreader::ThreadInfo*>(ptr);
+
+  //int id      = info->ThreadID;
+  //int nThread = info->NumberOfThreads;
+  DepthImageServerX264::ThreadData* td = static_cast<DepthImageServerX264::ThreadData*>(info->UserData);
+
+  threader->SpawnThread((igtl::ThreadFunctionType) &ThreadFunction, td);
   while(1);
   {
     igtl::Sleep(10000);
@@ -405,12 +403,12 @@ void ServerControl()
         {
           if (threadID >= 0)
           {
-            td.stop = 1;
+            td->stop = 1;
             threader->TerminateThread(threadID);
             threadID = -1;
           }
           std::cerr << "Disconnecting the client." << std::endl;
-          td.socket = NULL;  // VERY IMPORTANT. Completely remove the instance.
+          td->socket = NULL;  // VERY IMPORTANT. Completely remove the instance.
           socket->CloseSocket();
           break;
         }
@@ -436,11 +434,11 @@ void ServerControl()
           int c = startVideoMsg->Unpack(1);
           if (c & igtl::MessageHeader::UNPACK_BODY) // if CRC check is OK
           {
-            td.interval = startVideoMsg->GetResolution();
-            td.glock    = glock;
-            td.socket   = socket;
-            td.stop     = 0;
-            td.useCompression = startVideoMsg->GetUseCompress();
+            td->interval = startVideoMsg->GetResolution();
+            td->glock    = glock;
+            td->socket   = socket;
+            td->stop     = 0;
+            td->useCompression = startVideoMsg->GetUseCompress();
             threadID    = threader->SpawnThread((igtl::ThreadFunctionType) &ThreadFunction, &td);
           }
         }
@@ -450,11 +448,11 @@ void ServerControl()
           std::cerr << "Received a STP_VIDEO message." << std::endl;
           if (threadID >= 0)
           {
-            td.stop  = 1;
+            td->stop  = 1;
             threader->TerminateThread(threadID);
             threadID = -1;
             std::cerr << "Disconnecting the client." << std::endl;
-            td.socket = NULL;  // VERY IMPORTANT. Completely remove the instance.
+            td->socket = NULL;  // VERY IMPORTANT. Completely remove the instance.
             socket->CloseSocket();
           }
           break;
@@ -536,7 +534,7 @@ void* ThreadFunction(void* ptr)
   h_DepthIndex = x264_encoder_open(&param);
   h_ColorFrame = x264_encoder_open(&param);
   x264_t* h[3] = {h_DepthFrame,h_DepthIndex, h_ColorFrame};
-  x264_picture_t pictureGroup[3] = {td->td_Server->pic_DepthFrame,td->td_Server->pic_DepthIndex, td->td_Server->pic_Color};
+  x264_picture_t* pictureGroup[3] = {&td->td_Server->pic_DepthFrame,&td->td_Server->pic_DepthIndex, &td->td_Server->pic_Color};
   //x264_encoder_parameters(h_DepthFrame, &param);
   //x264_encoder_parameters(h_DepthIndex, &param);
   //x264_encoder_parameters(h_ColorFrame, &param);
@@ -547,15 +545,15 @@ void* ThreadFunction(void* ptr)
     if (!param.b_vfr_input)
     {
       for(int i = 0; i<3 ;i++)
-        pictureGroup[i].i_pts = i_frame;
+        pictureGroup[i]->i_pts = i_frame;
     }
     if( opt.i_pulldown && !param.b_vfr_input )
     {
       for (int i = 0; i < 3; i++)
       {
-        pictureGroup[i].i_pic_struct = pulldown->pattern[i_frame % pulldown->mod];
-        pictureGroup[i].i_pts = (int64_t)(pulldown_pts + 0.5);
-        pulldown_pts += pulldown_frame_duration[pictureGroup[i].i_pic_struct];
+        pictureGroup[i]->i_pic_struct = pulldown->pattern[i_frame % pulldown->mod];
+        pictureGroup[i]->i_pts = (int64_t)(pulldown_pts + 0.5);
+        pulldown_pts += pulldown_frame_duration[pictureGroup[i]->i_pic_struct];
       }
       
     }
@@ -563,13 +561,13 @@ void* ThreadFunction(void* ptr)
     {
       for (int i = 0; i < 3; i++)
       {
-        pictureGroup[i].i_pts = (int64_t)(pictureGroup[i].i_pts * opt.timebase_convert_multiplier + 0.5);
+        pictureGroup[i]->i_pts = (int64_t)(pictureGroup[i]->i_pts * opt.timebase_convert_multiplier + 0.5);
       }
     }
     std::string frameNames[3] = { "DepthFrame", "DepthIndex","ColorFrame"};
     for (int iMessage = 0; iMessage < 3; iMessage++)
     {
-      int i_frame_size = x264_encoder_encode(h[iMessage], &nal, &i_nal, &pictureGroup[iMessage], &pic_out);
+      int i_frame_size = x264_encoder_encode(h[iMessage], &nal, &i_nal, pictureGroup[iMessage], &pic_out);
       if (i_frame_size > 0)
       {
         igtl::VideoMessage::Pointer videoMsg;
